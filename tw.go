@@ -24,11 +24,7 @@ type WeatherData struct {
 }
 
 func main() {
-	location := flag.String("loc", "05401", "The location where would you like to track temperature (e.g. 05401, Moscow, SFO)")
-	verbose := flag.Bool("v", false, "Verbose mode enables additional logging")
-	useCelsius := flag.Bool("c", false, "Use celsius temperature measurements, otherwise defaults to Fahrenheit")
-	tempThreshold := flag.Int("temp", 75, "The temperature threshold to watch for, in fahrenheit. Use the '-c' flag to use celsius instead.")
-	flag.Parse()
+	location, tempThreshold, verbose, useCelsius := parseFlags()
 
 	passedThreshold, currentTemp, err := checkTempThreshold(*location, *tempThreshold, *useCelsius, *verbose)
 	if err != nil {
@@ -40,6 +36,17 @@ func main() {
 	} else {
 		fmt.Printf("It's %d˚ degrees out, which is below your %d˚ degree threshold.\n", currentTemp, *tempThreshold)
 	}
+}
+
+// Parse option flags from the command line.
+func parseFlags() (location *string, tempThreshold *int, verbose, useCelsius *bool) {
+	location = flag.String("loc", "05401", "The location where would you like to track temperature (e.g. 05401, Moscow, SFO)")
+	verbose = flag.Bool("v", false, "Verbose mode enables additional logging")
+	useCelsius = flag.Bool("c", false, "Use celsius temperature measurements, otherwise defaults to Fahrenheit")
+	tempThreshold = flag.Int("temp", 75, "The temperature threshold to watch for, in fahrenheit. Use the '-c' flag to use celsius instead.")
+	flag.Parse()
+
+	return location, tempThreshold, verbose, useCelsius
 }
 
 // Checks if the current temperature at a specific location has surpassed a
