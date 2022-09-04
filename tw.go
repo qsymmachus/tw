@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 const (
@@ -23,43 +24,65 @@ type WeatherData struct {
 	CurrentCondition []TemperatureData `json:"current_condition"`
 }
 
-func main() {
-	location, tempThreshold, verbose, useCelsius := parseFlags()
+type FlagOptions struct {
+	Location      string
+	TempThreshold int
+	Interval      int
+	UseCelsius    bool
+	Verbose       bool
+}
 
-	passedThreshold, currentTemp, err := checkTempThreshold(*location, *tempThreshold, *useCelsius, *verbose)
+func main() {
+	opts := parseFlags()
+
+	fmt.Printf("Watching for the temperature to exceed %d˚...\n", opts.TempThreshold)
+
+	err := checkTempThreshold(opts.Location, opts.TempThreshold, opts.UseCelsius, opts.Verbose)
 	if err != nil {
 		log.Fatalf("Something went wrong trying to fetch the weather: %v", err)
 	}
 
-	if passedThreshold {
-		fmt.Printf("It's %d˚ out! That's hotter than your %d˚ threshold.\n", currentTemp, *tempThreshold)
-	} else {
-		fmt.Printf("It's %d˚ degrees out, which is below your %d˚ degree threshold.\n", currentTemp, *tempThreshold)
+	tick := time.Tick(time.Duration(opts.Interval) * time.Minute)
+	for {
+		select {
+		case <-tick:
+			err := checkTempThreshold(opts.Location, opts.TempThreshold, opts.UseCelsius, opts.Verbose)
+			if err != nil {
+				log.Fatalf("Something went wrong trying to fetch the weather: %v", err)
+			}
+		}
 	}
 }
 
 // Parse option flags from the command line.
-func parseFlags() (location *string, tempThreshold *int, verbose, useCelsius *bool) {
-	location = flag.String("loc", "05401", "The location where would you like to track temperature (e.g. 05401, Moscow, SFO)")
-	verbose = flag.Bool("v", false, "Verbose mode enables additional logging")
-	useCelsius = flag.Bool("c", false, "Use celsius temperature measurements, otherwise defaults to Fahrenheit")
-	tempThreshold = flag.Int("temp", 75, "The temperature threshold to watch for, in fahrenheit. Use the '-c' flag to use celsius instead.")
+func parseFlags() FlagOptions {
+	location := flag.String("loc", "05401", "The location where would you like to track temperature (e.g. 05401, Moscow, SFO)")
+	verbose := flag.Bool("v", false, "Verbose mode enables additional logging")
+	useCelsius := flag.Bool("c", false, "Use celsius temperature measurements, otherwise defaults to Fahrenheit")
+	tempThreshold := flag.Int("temp", 75, "The temperature threshold to watch for, in fahrenheit. Use the '-c' flag to use celsius instead.")
+	minutes := flag.Int("m", 1, "How frequently to check the temperature, in minutes")
 	flag.Parse()
 
-	return location, tempThreshold, verbose, useCelsius
+	return FlagOptions{
+		Location:      *location,
+		TempThreshold: *tempThreshold,
+		Interval:      *minutes,
+		Verbose:       *verbose,
+		UseCelsius:    *useCelsius,
+	}
 }
 
 // Checks if the current temperature at a specific location has surpassed a
-// specified temperature threshold. If it has, returns `true` as the first argument,
-// otherwise it returns `false`. The current temperature is returned as the second
-// argument. An error is returned if it fails to fetch weather data.
-func checkTempThreshold(location string, tempThreshold int, useCelsius, verbose bool) (passedThreshold bool, currentTemp int, err error) {
+// specified temperature threshold, and prints a message with the result.
+// An error is returned if it fails to fetch weather data.
+func checkTempThreshold(location string, tempThreshold int, useCelsius, verbose bool) error {
 	weatherURL := fmt.Sprintf(BaseWeatherURL, location)
 	weatherData, err := loadWeatherData(weatherURL, verbose)
 	if err != nil {
-		return false, currentTemp, err
+		return err
 	}
 
+	var currentTemp int
 	if useCelsius {
 		currentTemp, err = strconv.Atoi(weatherData.CurrentCondition[0].TempCelsius)
 	} else {
@@ -67,10 +90,19 @@ func checkTempThreshold(location string, tempThreshold int, useCelsius, verbose 
 	}
 
 	if err != nil {
-		return false, currentTemp, nil
+		return err
 	}
 
-	return currentTemp > tempThreshold, currentTemp, nil
+	if currentTemp > tempThreshold {
+		fmt.Printf("It's %d˚ out! That's hotter than your %d˚ threshold.\n", currentTemp, tempThreshold)
+		fmt.Print("\a") // Ding the bell
+	} else if currentTemp < tempThreshold {
+		fmt.Printf("It's %d˚ degrees out, which is below your %d˚ degree threshold.\n", currentTemp, tempThreshold)
+	} else {
+		fmt.Printf("It's %d˚ degrees out, which equal to your %d˚ degree threshold.\n", currentTemp, tempThreshold)
+	}
+
+	return nil
 }
 
 func loadWeatherData(url string, verbose bool) (WeatherData, error) {
